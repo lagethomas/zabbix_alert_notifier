@@ -174,7 +174,7 @@ chrome.action.onClicked.addListener(() => {
 
 // 2. FUNÇÃO PRINCIPAL: Verificação de Alertas (com persistência)
 async function checkZabbixAlerts(isTest = false) {
-    console.log(`Verificando alertas do Zabbix (Modo Teste: ${isTest})...`);
+    // console.log(`Verificando alertas do Zabbix (Modo Teste: ${isTest})...`);
 
     try {
         const config = await new Promise(resolve => {
@@ -283,7 +283,7 @@ async function checkZabbixAlerts(isTest = false) {
         return problems.length;
 
     } catch (error) {
-        console.error("Erro na verificação de alertas Zabbix:", error.message);
+        // console.error("Erro na verificação de alertas Zabbix:", error.message);
 
         if (!isTest) {
             consecutiveErrorCount++;
@@ -347,9 +347,9 @@ function sendNotification(problem, timeoutSeconds = 0, customTagsString = 'Plant
             if (id && timeoutSeconds > 0) {
                 setTimeout(() => {
                     chrome.notifications.clear(id, (wasCleared) => {
-                        if (wasCleared) {
-                            console.log(`Notificação ${id} fechada após ${timeoutSeconds} segundos.`);
-                        }
+                        // if (wasCleared) {
+                        // console.log(`Notificação ${id} fechada após ${timeoutSeconds} segundos.`);
+                        // }
                     });
                 }, timeoutSeconds * 1000);
             }
@@ -365,10 +365,10 @@ function setupAlarm(intervalInMinutes) {
                 delayInMinutes: 0.1,
                 periodInMinutes: intervalInMinutes
             });
-            console.log(`Novo alarme agendado: a cada ${intervalInMinutes} minutos.`);
+            // console.log(`Novo alarme agendado: a cada ${intervalInMinutes} minutos.`);
             chrome.storage.local.set({ isMonitoringActive: true });
         } else {
-            console.log(`Alarme desativado.`);
+            // console.log(`Alarme desativado.`);
             updateBadge(0);
             chrome.storage.local.set({ isMonitoringActive: false });
         }
@@ -380,9 +380,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
         chrome.storage.local.get('isMonitoringActive', (data) => {
             if (data.isMonitoringActive !== false) {
-                checkZabbixAlerts(false).catch(error => console.error("Falha na verificação periódica do Zabbix:", error.message));
+                checkZabbixAlerts(false).catch(error => { /* console.error("Falha na verificação periódica do Zabbix:", error.message) */ });
             } else {
-                console.log("Verificação periódica ignorada: Monitoramento está INATIVO.");
+                // console.log("Verificação periódica ignorada: Monitoramento está INATIVO.");
             }
         });
     }
@@ -543,7 +543,7 @@ chrome.storage.local.get(['checkInterval', 'isMonitoringActive'], (data) => {
     if (isInitiallyActive && data.checkInterval) {
         setupAlarm(data.checkInterval);
         // Garante que a primeira checagem ocorre imediatamente, carregando os problemas atuais
-        checkZabbixAlerts(false).catch(error => console.error("Falha na checagem inicial do Zabbix:", error.message));
+        checkZabbixAlerts(false).catch(error => { /* console.error("Falha na checagem inicial do Zabbix:", error.message) */ });
     } else if (!isInitiallyActive) {
         setupAlarm(0);
     } else {
