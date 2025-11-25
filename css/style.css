@@ -1,0 +1,350 @@
+/* Paleta de Cores Minimalista: */
+:root {
+    --primary-color: #3F51B5; /* Indigo */
+    --secondary-color: #4CAF50; /* Green */
+    --error-color: #F44336; /* Red */
+    --warning-color: #FF9800; /* Orange */
+    --background-light: #FFFFFF; /* White */
+    --text-dark: #212121;
+    --border-light: #E0E0E0; /* Light Gray */
+    --accent-blue: #03A9F4; /* Light Blue */
+}
+
+body {
+    font-family: 'Roboto', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: var(--background-light);
+    color: var(--text-dark);
+    line-height: 1.4;
+    min-height: 100vh;
+    overflow-y: auto;
+}
+
+.container {
+    padding: 15px; /* Redução de padding */
+    max-width: 380px;
+    margin: 0 auto;
+}
+
+h1 {
+    color: var(--primary-color);
+    font-size: 1.3em; /* Tamanho reduzido */
+    margin-top: 5px;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+    font-weight: 500;
+}
+
+h1 span {
+    margin-right: 8px;
+}
+
+form label {
+    display: block;
+    margin-top: 12px; /* Espaçamento reduzido */
+    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: 0.85em;
+    color: var(--text-dark);
+}
+
+input[type="url"],
+input[type="password"],
+input[type="text"],
+input[type="number"] {
+    width: 95%;
+    padding: 8px; /* Padding reduzido */
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.05); /* Sombra suave */
+    box-sizing: border-box;
+    transition: border-color 0.3s, box-shadow 0.3s;
+    font-size: 0.9em;
+}
+
+input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(63, 81, 181, 0.2); /* Foco mais moderno */
+    outline: none;
+}
+
+button {
+    width: 100%;
+    padding: 10px 15px;
+    margin-top: 15px;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    background-color: var(--primary-color);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.3s, box-shadow 0.3s;
+    font-size: 0.95em;
+}
+
+button:hover {
+    background-color: #303F9F; /* Darker Indigo */
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Estilos de Botões */
+.secondary-btn {
+    background-color: var(--border-light);
+    color: var(--text-dark);
+    box-shadow: none;
+    border: 1px solid var(--border-light);
+    margin-top: 10px;
+}
+
+.secondary-btn:hover {
+    background-color: #CFCFCF;
+}
+
+#reset-btn {
+background-color: var(--error-color);
+margin-top: 10px;
+}
+
+#reset-btn:hover {
+background-color: #D32F2F;
+}
+
+/* Estilos para o botão Toggle */
+#toggle-monitoring-btn {
+margin-top: 0;
+margin-bottom: 15px;
+font-weight: bold;
+font-size: 1em;
+}
+
+.toggle-active {
+    background-color: var(--secondary-color) !important; /* Verde */
+}
+
+.toggle-active:hover {
+    background-color: #388E3C !important;
+}
+
+.toggle-inactive {
+    background-color: var(--error-color) !important; /* Vermelho */
+}
+
+.toggle-inactive:hover {
+    background-color: #D32F2F !important;
+}
+
+/* NOVO: Agrupamento de botões de teste lado a lado */
+.test-buttons-group {
+    display: flex;
+    gap: 10px; /* Espaço entre os botões */
+    margin-top: 15px;
+    margin-bottom: 0;
+}
+
+.test-buttons-group button {
+    flex: 1; /* Faz com que ambos ocupem 50% do espaço, dividindo igualmente */
+    width: auto; /* Anula o 100% do botão geral */
+    margin-top: 0; /* Remove a margem superior */
+    padding: 8px 10px; /* Reduz o padding para parecer menor/mais compacto */
+    font-size: 0.85em; /* Fonte ligeiramente menor */
+    font-weight: 600;
+}
+/* FIM NOVO AGRUPAMENTO */
+
+
+p {
+    font-size: 0.85em;
+    color: #757575; /* Cinza médio */
+    margin-bottom: 15px;
+}
+
+/* Mensagens de status */
+#status-message {
+text-align: center;
+padding: 8px;
+margin-top: 10px;
+border-radius: 4px;
+font-weight: 500;
+font-size: 0.85em;
+opacity: 0;
+transition: opacity 0.5s;
+}
+
+.status-success {
+    background-color: #E8F5E9; /* Light Green Background */
+    color: var(--secondary-color);
+    opacity: 1 !important;
+}
+
+.status-error {
+    background-color: #FFEBEE; /* Light Red Background */
+    color: var(--error-color);
+    opacity: 1 !important;
+}
+
+.status-loading {
+    background-color: #E3F2FD; /* Light Blue Background */
+    color: var(--accent-blue);
+    opacity: 1 !important;
+}
+
+/* Estilo para a seção de severidade (Minimalista) */
+.severity-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* Duas colunas */
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+}
+
+.severity-options label {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    font-weight: normal;
+    font-size: 0.85em;
+    cursor: pointer;
+    white-space: nowrap;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding: 3px 0;
+}
+
+.severity-options input[type="checkbox"] {
+    margin-right: 5px;
+    cursor: pointer;
+}
+.saved-status {
+    display: block;
+    font-size: 0.75em;
+    color: var(--secondary-color);
+    margin-top: -5px;
+    margin-bottom: 5px;
+    font-style: italic;
+}
+#countdown-bar {
+height: 3px; /* Barra mais fina */
+background-color: var(--error-color);
+position: fixed;
+top: 0;
+left: 0;
+z-index: 1000;
+transition: width linear;
+}
+
+.security-note {
+    font-size: 0.7em; /* Fonte menor */
+    color: #9E9E9E; /* Cinza */
+    margin-top: 5px;
+    margin-bottom: 10px;
+    padding-left: 5px;
+    border-left: 2px solid #9E9E9E;
+}
+/* --- Estilos para o sistema de Abas (Tabs) --- */
+.tabs {
+    width: 100%;
+    margin-bottom: 15px;
+}
+
+.tab-header {
+    display: flex;
+    justify-content: space-around;
+    border-bottom: 1px solid var(--border-light);
+    margin-bottom: 10px;
+}
+
+.tab-button {
+    flex: 1;
+    padding: 10px 5px;
+    margin: 0;
+    border: none;
+    border-bottom: 3px solid transparent;
+    background-color: transparent;
+    color: var(--text-dark);
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.3s, color 0.3s;
+    font-size: 0.9em;
+}
+
+.tab-button.active {
+    border-bottom-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* --- Estilos para Tabela de Alertas --- */
+#alerts-list-status {
+text-align: center;
+padding: 10px;
+margin-bottom: 15px;
+border: 1px dashed var(--border-light);
+border-radius: 4px;
+font-size: 0.85em;
+color: #757575;
+}
+
+.alert-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.alert-table tr {
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.alert-table tr:hover {
+    background-color: #F5F5F5; /* Light hover */
+}
+
+.alert-table td {
+    padding: 8px 5px;
+    vertical-align: top;
+    font-size: 0.75em; /* Fonte menor para densidade */
+}
+
+.alert-severity {
+    font-weight: bold;
+    color: white;
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+/* Cores de Severidade (Baseado no Zabbix) */
+.sev-5 { background-color: #A30000; } /* Disaster */
+.sev-4 { background-color: #FF3838; } /* High */
+.sev-3 { background-color: #FF8F17; } /* Average */
+.sev-2 { background-color: #F8CB45; } /* Warning */
+.sev-1 { background-color: #7499FF; } /* Information */
+.sev-0 { background-color: #97AAB3; } /* Not Classified */
+
+.alert-host {
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.alert-problem {
+    color: var(--text-dark);
+    line-height: 1.2;
+    margin-top: 3px;
+}
+
+.alert-time {
+    color: #757575;
+    white-space: nowrap;
+}

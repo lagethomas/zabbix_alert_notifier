@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configurações Zabbix</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="countdown-bar"></div>
+
+    <div class="tabs">
+        <div class="tab-header">
+            <button class="tab-button active" data-tab="config">⚙️ Configuração</button>
+            <button class="tab-button" data-tab="alerts">🚨 Alertas Ativos</button>
+        </div>
+
+        <div id="config" class="tab-content active">
+            <div class="container">
+                <h1><span>⚡</span> Monitor Zabbix</h1>
+                <p>Configurações da API Zabbix e severidades de alertas para notificação push.</p>
+
+                <button id="toggle-monitoring-btn" class="toggle-active">Monitoramento: ✅ ATIVO</button>
+
+                <form id="zabbix-config-form">
+                    <label for="zabbix-url">🔗 URL da API Zabbix:</label>
+                    <input type="url" id="zabbix-url" placeholder="Ex: https://zabbix.com/api_jsonrpc.php" required>
+
+                    <label for="zabbix-token">🔑 Token da API:</label>
+                    <input type="password" id="zabbix-token" placeholder="Insira o Token" required>
+                    <span id="token-status" class="saved-status"></span>
+                    <p class="security-note">O Token é armazenado localmente para a comunicação com a API Zabbix.</p>
+
+                    <label>🚨 Severidades para Notificação:</label>
+                    <div class="severity-options">
+                        <label><input type="checkbox" data-severity-id="5" checked> Desastre</label>
+                        <label><input type="checkbox" data-severity-id="4" checked> Alta</label>
+                        <label><input type="checkbox" data-severity-id="3"> Média</label>
+                        <label><input type="checkbox" data-severity-id="2"> Atenção</label>
+                        <label><input type="checkbox" data-severity-id="1"> Informação</label>
+                        <label><input type="checkbox" data-severity-id="0"> Não Classificada</label>
+                    </div>
+
+                    <label for="custom-tags">🏷️ Tags de Detalhe (separadas por vírgula):</label>
+                    <input type="text" id="custom-tags" placeholder="Ex: Local, Responsável, Setor" value="Planta">
+                    <p style="font-size: 0.8em; color: #757575; margin-top: -10px; margin-bottom: 5px;">As tags devem ser exatas e são exibidas na notificação.</p>
+
+                    <label for="check-interval">⏱️ Intervalo de Verificação (minutos):</label>
+                    <input type="number" id="check-interval" min="1" value="5" required>
+
+                    <label for="notification-timeout">⏳ Tempo de Push (segundos):</label>
+                    <input type="number" id="notification-timeout" min="0" value="15" placeholder="0 para fechar manualmente ou SO" required>
+
+                    <button type="submit">💾 Salvar Configurações</button>
+                </form>
+
+                <div id="status-message"></div>
+
+                <div class="test-buttons-group">
+                    <button id="test-simple-btn" class="secondary-btn">🌐 Testar Conectividade</button>
+                    <button id="test-notification-btn" class="secondary-btn">🔍 Buscar Alertas (Teste)</button>
+                </div>
+                <button id="reset-btn">🗑️ Limpar Tudo (Reset)</button>
+            </div>
+        </div>
+
+        <div id="alerts" class="tab-content">
+            <div class="container">
+                <h2>Alertas Ativos Recentes</h2>
+                <button id="refresh-alerts-btn" class="secondary-btn" style="width: 100%; margin-bottom: 10px;">🔄 Atualizar Lista</button>
+                <div id="alerts-list-status" class="status-loading">Carregando alertas...</div>
+                <div id="alerts-list">
+                    </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="scripts/popup.js"></script>
+</body>
+</html>
