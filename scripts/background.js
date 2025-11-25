@@ -184,8 +184,18 @@ async function checkZabbixAlerts(isTest = false) {
 
         const { zabbixUrl, zabbixToken, selectedSeverities, notificationTimeout, customTags } = config;
 
-        // Carrega IDs conhecidos da última execução (Set garante unicidade)
-        const lastKnownProblemIds = new Set(config.lastKnownProblemIds || []);
+        // Carrega IDs conhecidos da última execução
+        // MIGRACAO: Se for array (versão antiga), converte para objeto. Se for objeto, usa direto.
+        let lastKnownProblemIds = config.lastKnownProblemIds || {};
+        if (Array.isArray(lastKnownProblemIds)) {
+            const tempIds = {};
+            // Se era array, assume que já foi notificado recentemente, então define o próximo alerta para daqui a 20min
+            const now = Date.now();
+            lastKnownProblemIds.forEach(id => {
+                tempIds[id] = now + (20 * 60 * 1000);
+            });
+            lastKnownProblemIds = tempIds;
+        }
 
         if (!zabbixUrl || !zabbixToken) {
             if (!isTest) updateBadge(0, false);
@@ -195,8 +205,8 @@ async function checkZabbixAlerts(isTest = false) {
         const apiUrl = zabbixUrl.endsWith('/api_jsonrpc.php') ? zabbixUrl : zabbixUrl.replace(/\/+$/, '') + '/api_jsonrpc.php';
 
         const severitiesToFetch = selectedSeverities && selectedSeverities.length > 0
-        ? selectedSeverities.map(id => parseInt(id))
-        : [4, 5];
+            ? selectedSeverities.map(id => parseInt(id))
+            : [4, 5];
 
         // Passo 1: Busca problemas e o ID do objeto (problem.get)
         const problemRequestBody = {
@@ -206,7 +216,7 @@ async function checkZabbixAlerts(isTest = false) {
                 output: ['eventid', 'name', 'severity', 'objectid', 'object', 'r_eventid'],
                 selectTags: ['tag', 'value'],
                 selectHosts: ['hostid', 'name'],
-                recent: true,
+                recent: false,
                 severities: severitiesToFetch,
                 sortfield: 'eventid',
                 sortorder: 'DESC',
@@ -263,19 +273,37 @@ async function checkZabbixAlerts(isTest = false) {
             return problems.length;
         }
 
-        // --- LÓGICA DE PREVENÇÃO DE DUPLICAÇÃO PERSISTENTE ---
-        const currentProblemIds = new Set(problems.map(p => p.eventid));
+        // --- LÓGICA DE PREVENÇÃO DE DUPLICAÇÃO PERSISTENTE E RE-ALERTA (20min) ---
+        const nextKnownProblemIds = {};
+        const REMINDER_INTERVAL_MS = 20 * 60 * 1000; // 20 minutos
+        const now = Date.now();
 
         problems.forEach(problem => {
-            // Só notifica se o eventid for NOVO (não estava na última checagem persistente)
-            if (!lastKnownProblemIds.has(problem.eventid)) {
+            const eventId = problem.eventid;
+
+            if (!lastKnownProblemIds.hasOwnProperty(eventId)) {
+                // NOVO PROBLEMA: Notifica e agenda próximo alerta para daqui a 20min
                 sendNotification(problem, notificationTimeout, customTags);
+                nextKnownProblemIds[eventId] = now + REMINDER_INTERVAL_MS;
+            } else {
+                // PROBLEMA JÁ CONHECIDO: Verifica se já passou o tempo de silêncio (20min)
+                const nextAlertTime = lastKnownProblemIds[eventId];
+
+                if (now >= nextAlertTime) {
+                    // Passaram-se 20min (ou mais) desde a última notificação/registro
+                    sendNotification(problem, notificationTimeout, customTags);
+                    // Reagenda para daqui a mais 20min
+                    nextKnownProblemIds[eventId] = now + REMINDER_INTERVAL_MS;
+                } else {
+                    // Ainda está no período de silêncio (dentro dos 20min)
+                    // Mantém o horário agendado original
+                    nextKnownProblemIds[eventId] = nextAlertTime;
+                }
             }
         });
 
-        // Salva os IDs de problema atuais para a próxima checagem
-        // Converte o Set para Array para armazenar no storage
-        await chrome.storage.local.set({ lastKnownProblemIds: Array.from(currentProblemIds) });
+        // Salva o objeto atualizado (apenas problemas que ainda estão ativos persistem)
+        await chrome.storage.local.set({ lastKnownProblemIds: nextKnownProblemIds });
         // FIM DA LÓGICA DE PREVENÇÃO PERSISTENTE
 
         updateBadge(problems.length, false);
@@ -338,10 +366,10 @@ function sendNotification(problem, timeoutSeconds = 0, customTagsString = 'Plant
         {
             type: 'basic',
             iconUrl: chrome.runtime.getURL('icons/icon128.png'),
-                                title: `ZABBIX ALERTA: ${severityName} (${hostName})`,
-                                message: `${tagsLine}\n${cleanMessageBody}`,
-                                priority: 2,
-                                // REMOVIDO: buttons: [{ title: "Reconhecer (Acknowledge)" }]
+            title: `ZABBIX ALERTA: ${severityName} (${hostName})`,
+            message: `${tagsLine}\n${cleanMessageBody}`,
+            priority: 2,
+            // REMOVIDO: buttons: [{ title: "Reconhecer (Acknowledge)" }]
         },
         (id) => {
             if (id && timeoutSeconds > 0) {
@@ -413,7 +441,7 @@ async function fetchZabbixAlertsForPopup() {
             params: {
                 output: ['eventid', 'name', 'severity', 'objectid', 'object', 'clock'],
                 selectHosts: ['hostid', 'name'],
-                recent: true,
+                recent: false,
                 severities: severitiesToFetch,
                 sortfield: 'eventid',
                 sortorder: 'DESC',
@@ -499,33 +527,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'testCheck') {
         consecutiveErrorCount = 0;
         checkZabbixAlerts(true)
-        .then(problemCount => {
-            updateBadge(problemCount, false);
-            sendResponse({ status: 'success', count: problemCount });
-        })
-        .catch(error => {
-            updateBadge(0, true);
-            sendResponse({ status: 'error', message: error.message });
-        });
+            .then(problemCount => {
+                updateBadge(problemCount, false);
+                sendResponse({ status: 'success', count: problemCount });
+            })
+            .catch(error => {
+                updateBadge(0, true);
+                sendResponse({ status: 'error', message: error.message });
+            });
         return true;
     }
 
     if (request.action === 'testSimpleConnect') {
         testZabbixSimpleConnect()
-        .then(version => { sendResponse({ status: 'success', version: version }); })
-        .catch(error => { sendResponse({ status: 'error', message: error.message }); });
+            .then(version => { sendResponse({ status: 'success', version: version }); })
+            .catch(error => { sendResponse({ status: 'error', message: error.message }); });
         return true;
     }
 
     // HANDLER PARA BUSCAR ALERTAS PARA O POPUP
     if (request.action === 'fetchPopupAlerts') {
         fetchZabbixAlertsForPopup()
-        .then(alerts => {
-            sendResponse({ status: 'success', alerts: alerts });
-        })
-        .catch(error => {
-            sendResponse({ status: 'error', message: error.message });
-        });
+            .then(alerts => {
+                sendResponse({ status: 'success', alerts: alerts });
+            })
+            .catch(error => {
+                sendResponse({ status: 'error', message: error.message });
+            });
         return true;
     }
 
