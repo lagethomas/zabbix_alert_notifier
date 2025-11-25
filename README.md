@@ -1,4 +1,4 @@
-## 🚨 Zabbix Alert Notifier - Extensão Chrome
+# 🚨 Zabbix Alert Notifier - Extensão Chrome
 
 ### 🌟 Visão Geral
 
