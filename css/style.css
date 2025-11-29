@@ -348,3 +348,30 @@ color: #757575;
     color: #757575;
     white-space: nowrap;
 }
+
+/* NOVO: Etiquetas de Status (Problema / Resolvido) */
+.status-badge {
+    display: inline-block;
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    font-weight: bold;
+    color: white;
+    margin-right: 5px;
+    margin-bottom: 3px;
+}
+
+.status-problem {
+    background-color: #F44336; /* Vermelho (usando var se preferir) */
+    animation: pulse 2s infinite;
+}
+
+.status-resolved {
+    background-color: #4CAF50; /* Verde */
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.7; }
+    100% { opacity: 1; }
+}

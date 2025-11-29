@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const tokenInput = document.getElementById('zabbix-token');
     const intervalInput = document.getElementById('check-interval');
     const customTagsInput = document.getElementById('custom-tags');
+    const hostGroupsInput = document.getElementById('host-groups'); // Campo de grupos
     const statusMessage = document.getElementById('status-message');
     const testNotificationBtn = document.getElementById('test-notification-btn');
     const testSimpleBtn = document.getElementById('test-simple-btn');
@@ -81,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const renderAlertsTable = (alerts) => {
         alertsListDiv.innerHTML = '';
         if (alerts.length === 0) {
-            alertsListStatus.textContent = '✅ Nenhum problema ativo encontrado nos 50 mais recentes.';
+            alertsListStatus.textContent = '✅ Nenhum problema ativo encontrado nos 50 mais recentes (respeitando filtros).';
             alertsListStatus.className = 'status-success';
             return;
         }
@@ -90,7 +91,18 @@ document.addEventListener('DOMContentLoaded', () => {
         table.className = 'alert-table';
 
         alerts.forEach(alert => {
-            const row = table.insertRow();
+            const row = table.insertRow(); 
+
+            // Determina se é RESOLVIDO ou PROBLEMA
+            // Se r_eventid existe e não é "0", é resolvido.
+            const isResolved = (alert.r_eventid && alert.r_eventid !== "0");
+            const statusLabel = isResolved ? "RESOLVIDO" : "PROBLEMA";
+            const statusClass = isResolved ? "status-resolved" : "status-problem";
+            
+            // Usa o relógio de recuperação se resolvido, senão o de criação
+            const timeToDisplay = isResolved && alert.r_clock 
+                ? new Date(parseInt(alert.r_clock) * 1000).toLocaleString('pt-BR')
+                : new Date(parseInt(alert.clock) * 1000).toLocaleString('pt-BR');
 
             // Coluna 1: Severidade e Host (USANDO hostDisplayName)
             const cell1 = row.insertCell();
@@ -103,8 +115,11 @@ document.addEventListener('DOMContentLoaded', () => {
             // Coluna 2: Problema e Tempo
             const cell2 = row.insertCell();
             cell2.innerHTML = `
+            <div>
+                <span class="status-badge ${statusClass}">${statusLabel}</span>
+            </div>
             <div class="alert-problem">${alert.name}</div>
-            <div class="alert-time">${new Date(parseInt(alert.clock) * 1000).toLocaleString('pt-BR')}</div>
+            <div class="alert-time">${timeToDisplay}</div>
             `;
 
             // Torna a linha clicável
@@ -117,13 +132,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         alertsListDiv.appendChild(table);
-        alertsListStatus.textContent = `Mostrando ${alerts.length} problemas ativos.`;
+        alertsListStatus.textContent = `Mostrando ${alerts.length} eventos recentes (filtrados).`;
         alertsListStatus.className = 'status-loading'; // Manter cor neutra após o carregamento
     };
 
     // Função para buscar alertas (chamada do background)
     const fetchAndRenderAlerts = () => {
-        // Usa o statusMessage principal para feedback inicial, se for a primeira aba
+        // Esta função sempre renderiza dados FILTRADOS, pois o background.js usa os filtros salvos.
         if (document.getElementById('alerts').classList.contains('active')) {
             alertsListStatus.textContent = 'Carregando alertas...';
             alertsListStatus.className = 'status-loading';
@@ -150,10 +165,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // 1. Carregar configurações salvas
-    chrome.storage.local.get(['zabbixUrl', 'checkInterval', 'selectedSeverities', 'zabbixToken', 'notificationTimeout', 'customTags', 'isMonitoringActive'], (data) => {
+    chrome.storage.local.get(['zabbixUrl', 'checkInterval', 'selectedSeverities', 'zabbixToken', 'notificationTimeout', 'customTags', 'isMonitoringActive', 'hostGroups'], (data) => {
         if (data.zabbixUrl) urlInput.value = data.zabbixUrl;
         if (data.checkInterval) intervalInput.value = data.checkInterval;
         if (data.customTags) customTagsInput.value = data.customTags;
+        if (data.hostGroups) hostGroupsInput.value = data.hostGroups;
+
 
         isMonitoringActive = data.isMonitoringActive !== false;
         updateToggleButton();
@@ -192,6 +209,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const checkInterval = parseInt(intervalInput.value, 10);
         const timeoutValue = parseInt(notificationTimeoutInput.value, 10);
         const customTags = customTagsInput.value.trim();
+        const hostGroups = hostGroupsInput.value.trim();
+
 
         const selectedSeverities = Array.from(severityCheckboxes)
         .filter(cb => cb.checked)
@@ -222,8 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // SALVA TODAS AS CONFIGURAÇÕES
-            chrome.storage.local.set({ zabbixUrl, zabbixToken: tokenToSave, checkInterval, selectedSeverities, notificationTimeout: timeoutValue, customTags }, () => {
+            // SALVA TODAS AS CONFIGURAÇÕES (incluindo hostGroups)
+            chrome.storage.local.set({ zabbixUrl, zabbixToken: tokenToSave, checkInterval, selectedSeverities, notificationTimeout: timeoutValue, customTags, hostGroups }, () => {
                 tokenInput.value = '********';
                 tokenInput.removeAttribute('required');
                 tokenStatus.textContent = "Token salvo. Vazio para manter.";
@@ -282,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshAlertsBtn.addEventListener('click', fetchAndRenderAlerts);
 
 
-    // 4. Testes (mantidos)
+    // 4. Testes (Apenas mostra o status, NÃO renderiza a lista de alertas)
     testSimpleBtn.addEventListener('click', () => {
         displayStatus('Testando conectividade...', 'status-loading', 0);
 
@@ -315,6 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         displayStatus('Buscando alertas...', 'status-loading', 0);
 
+        // O background.js executa a verificação com filtros, mas não notifica nem atualiza o badge.
         chrome.runtime.sendMessage({ action: 'testCheck' }, (response) => {
             if (chrome.runtime.lastError) {
                 displayStatus('Erro interno.', 'status-error', 10000);
@@ -325,10 +345,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const count = response.count;
                 let message;
                 if (count > 0) {
-                    message = `✅ Sucesso! ${count} problemas encontrados.`;
+                    // Mensagem clara sobre o resultado do teste.
+                    message = `✅ Teste OK! ${count} problemas encontrados (com filtros).`;
                     displayStatus(message, 'status-error', 7000);
                 } else {
-                    message = '✅ Sucesso! Nenhum alerta encontrado.';
+                    message = '✅ Teste OK! Nenhum alerta encontrado (com filtros).';
                     displayStatus(message, 'status-success', 7000);
                 }
                 const timeoutValue = parseInt(notificationTimeoutInput.value, 10);

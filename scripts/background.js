@@ -162,6 +162,121 @@ async function getHostNameFromId(hostId, zabbixUrl, zabbixToken) {
     }
 }
 
+// Função para buscar os IDs dos Grupos (groupids) a partir dos Nomes (names)
+async function getGroupIdsFromNames(groupNames, zabbixUrl, zabbixToken) {
+    if (groupNames.length === 0) return [];
+
+    const apiUrl = zabbixUrl.endsWith('/api_jsonrpc.php') ? zabbixUrl : zabbixUrl.replace(/\/+$/, '') + '/api_jsonrpc.php';
+
+    const requestBody = {
+        jsonrpc: '2.0',
+        method: 'hostgroup.get',
+        params: {
+            output: ['groupid'],
+            filter: { name: groupNames }, // Filtro exato por array de nomes
+        },
+        id: 4,
+        auth: zabbixToken
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Group Name API Error:', data.error);
+            return [];
+        }
+
+        if (data.result && data.result.length > 0) {
+            return data.result.map(group => group.groupid);
+        }
+
+        return [];
+    } catch (error) {
+        console.error('Error fetching Group IDs:', error);
+        return [];
+    }
+}
+
+// NOVO: Função para filtrar problemas cujas Triggers ou Itens estejam DESABILITADOS
+async function filterProblemsByTriggerStatus(problems, zabbixUrl, zabbixToken) {
+    if (problems.length === 0) return [];
+
+    const triggerIds = problems.map(p => p.objectid).filter(id => id && id !== '0');
+    if (triggerIds.length === 0) return problems;
+
+    const apiUrl = zabbixUrl.endsWith('/api_jsonrpc.php') ? zabbixUrl : zabbixUrl.replace(/\/+$/, '') + '/api_jsonrpc.php';
+
+    // Busca detalhes das Triggers e seus Itens
+    const requestBody = {
+        jsonrpc: '2.0',
+        method: 'trigger.get',
+        params: {
+            output: ['triggerid', 'status'], // status 0 = Enabled, 1 = Disabled
+            triggerids: triggerIds,
+            selectItems: ['itemid', 'status'] // status 0 = Enabled, 1 = Disabled
+        },
+        id: 5,
+        auth: zabbixToken
+    };
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        const data = await response.json();
+        
+        if (data.result) {
+            // Mapa para acesso rápido
+            const triggersMap = {};
+            data.result.forEach(t => { triggersMap[t.triggerid] = t; });
+
+            // Filtra os problemas
+            const filteredProblems = problems.filter(p => {
+                const trigger = triggersMap[p.objectid];
+                
+                if (!trigger) return true; // Se não achou trigger, mantem (segurança)
+
+                // 1. Verifica se a Trigger está desabilitada
+                if (trigger.status === '1') {
+                    console.log(`Removed Problem (Trigger Disabled): ${p.name}`);
+                    return false;
+                }
+
+                // 2. Verifica se algum item da trigger está desabilitado
+                // (Se TODOS os itens estiverem OK, ou pelo menos um, depende da lógica. 
+                // Normalmente se um item essencial desliga, a trigger pode ficar stale. 
+                // Vamos ser estritos: Se o item principal estiver desativado, remove).
+                if (trigger.items && trigger.items.length > 0) {
+                    const hasDisabledItem = trigger.items.some(item => item.status === '1');
+                    if (hasDisabledItem) {
+                         console.log(`Removed Problem (Item Disabled): ${p.name}`);
+                         return false;
+                    }
+                }
+
+                return true;
+            });
+
+            return filteredProblems;
+        }
+        
+        return problems;
+    } catch (e) {
+        console.error("Error filtering inactive triggers:", e);
+        return problems; // Em caso de erro, retorna lista original
+    }
+}
+
 
 // --- FUNÇÕES PRINCIPAIS ---
 
@@ -178,18 +293,16 @@ async function checkZabbixAlerts(isTest = false) {
 
     try {
         const config = await new Promise(resolve => {
-            // Inclui 'lastKnownProblemIds' para persistência
-            chrome.storage.local.get(['zabbixUrl', 'zabbixToken', 'selectedSeverities', 'notificationTimeout', 'customTags', 'lastKnownProblemIds'], resolve);
+            // Inclui 'lastKnownProblemIds' para persistência e 'hostGroups' para o filtro
+            chrome.storage.local.get(['zabbixUrl', 'zabbixToken', 'selectedSeverities', 'notificationTimeout', 'customTags', 'lastKnownProblemIds', 'hostGroups'], resolve);
         });
 
-        const { zabbixUrl, zabbixToken, selectedSeverities, notificationTimeout, customTags } = config;
+        const { zabbixUrl, zabbixToken, selectedSeverities, notificationTimeout, customTags, hostGroups } = config;
 
         // Carrega IDs conhecidos da última execução
-        // MIGRACAO: Se for array (versão antiga), converte para objeto. Se for objeto, usa direto.
         let lastKnownProblemIds = config.lastKnownProblemIds || {};
         if (Array.isArray(lastKnownProblemIds)) {
             const tempIds = {};
-            // Se era array, assume que já foi notificado recentemente, então define o próximo alerta para daqui a 20min
             const now = Date.now();
             lastKnownProblemIds.forEach(id => {
                 tempIds[id] = now + (20 * 60 * 1000);
@@ -207,21 +320,43 @@ async function checkZabbixAlerts(isTest = false) {
         const severitiesToFetch = selectedSeverities && selectedSeverities.length > 0
             ? selectedSeverities.map(id => parseInt(id))
             : [4, 5];
+            
+        // Processa os NOMES de Grupo de Host
+        const hostGroupNames = hostGroups 
+            ? hostGroups.split(',').map(name => name.trim()).filter(name => name.length > 0)
+            : [];
+            
+        // 1. Resolve Group Names to IDs
+        let hostGroupsToFetch = [];
+        if (hostGroupNames.length > 0) {
+            hostGroupsToFetch = await getGroupIdsFromNames(hostGroupNames, zabbixUrl, zabbixToken);
+            if (hostGroupsToFetch.length === 0) {
+                console.warn("Nenhum Host ID encontrado para os grupos especificados. Alerta desconsiderado.");
+                if (hostGroupNames.length > 0) return 0;
+            }
+        }
+            
+        // Parâmetros base
+        const params = {
+            output: ['eventid', 'name', 'severity', 'objectid', 'object', 'r_eventid'],
+            selectTags: ['tag', 'value'],
+            selectHosts: ['hostid', 'name', 'status', 'maintenance_status'], 
+            recent: true, // Busca apenas problemas ativos e não reconhecidos
+            severities: severitiesToFetch,
+            sortfield: 'eventid',
+            sortorder: 'DESC',
+            limit: 100,
+        };
+
+        if (hostGroupsToFetch.length > 0) {
+            params.groupids = hostGroupsToFetch;
+        }
 
         // Passo 1: Busca problemas e o ID do objeto (problem.get)
         const problemRequestBody = {
             jsonrpc: '2.0',
             method: 'problem.get',
-            params: {
-                output: ['eventid', 'name', 'severity', 'objectid', 'object', 'r_eventid'],
-                selectTags: ['tag', 'value'],
-                selectHosts: ['hostid', 'name'],
-                recent: false,
-                severities: severitiesToFetch,
-                sortfield: 'eventid',
-                sortorder: 'DESC',
-                limit: 100, // Aumentado para 100 para segurança na persistência
-            },
+            params: params,
             id: 1,
             auth: zabbixToken
         };
@@ -239,14 +374,28 @@ async function checkZabbixAlerts(isTest = false) {
         const data = await response.json();
 
         if (data.error) {
+            console.error('API Error Response:', data.error);
             throw new Error(`Erro na API Zabbix: ${data.error.message}. Verifique o Token.`);
         }
 
         let problems = data.result || [];
-
+        
         consecutiveErrorCount = 0;
+        
+        // 2. FILTRO CLIENT-SIDE 1: Hosts Inativos/Manutenção
+        problems = problems.filter(problem => {
+            if (!problem.hosts || problem.hosts.length === 0) return true; 
+            const hostStatus = problem.hosts[0].status;
+            const maintenanceStatus = problem.hosts[0].maintenance_status;
+            // Mantém apenas se Host Ativo E Sem Manutenção
+            return (hostStatus === '0' && maintenanceStatus === '0');
+        });
 
-        // Passo 2: Processa os Hosts (Otimizado)
+        // 3. FILTRO CLIENT-SIDE 2: Item/Trigger Inativo (NOVO)
+        // Faz uma chamada extra em lote para verificar o status da trigger/item
+        problems = await filterProblemsByTriggerStatus(problems, zabbixUrl, zabbixToken);
+
+        // Passo 4: Processa os Nomes dos Hosts (Otimizado)
         problems = await Promise.all(problems.map(async problem => {
             let hostId = null;
             let hostName = null;
@@ -268,58 +417,53 @@ async function checkZabbixAlerts(isTest = false) {
             return problem;
         }));
 
-        // Final da lógica (notificação/contagem)
         if (isTest) {
             return problems.length;
         }
 
-        // --- LÓGICA DE PREVENÇÃO DE DUPLICAÇÃO PERSISTENTE E RE-ALERTA (20min) ---
+        // --- LÓGICA DE NOTIFICAÇÃO ---
         const nextKnownProblemIds = {};
         const REMINDER_INTERVAL_MS = 20 * 60 * 1000; // 20 minutos
         const now = Date.now();
 
         problems.forEach(problem => {
+            // Se o problema tem r_eventid != 0, ele está RESOLVIDO. Não notificamos push de resolvido neste loop,
+            // ou poderíamos notificar "Recuperação". Por padrão, notificamos apenas problemas ativos.
+            if (problem.r_eventid !== "0") {
+                return; // Pula resolvidos para notificação push (mas eles aparecem na lista)
+            }
+
             const eventId = problem.eventid;
 
             if (!lastKnownProblemIds.hasOwnProperty(eventId)) {
-                // NOVO PROBLEMA: Notifica e agenda próximo alerta para daqui a 20min
                 sendNotification(problem, notificationTimeout, customTags);
                 nextKnownProblemIds[eventId] = now + REMINDER_INTERVAL_MS;
             } else {
-                // PROBLEMA JÁ CONHECIDO: Verifica se já passou o tempo de silêncio (20min)
                 const nextAlertTime = lastKnownProblemIds[eventId];
-
                 if (now >= nextAlertTime) {
-                    // Passaram-se 20min (ou mais) desde a última notificação/registro
                     sendNotification(problem, notificationTimeout, customTags);
-                    // Reagenda para daqui a mais 20min
                     nextKnownProblemIds[eventId] = now + REMINDER_INTERVAL_MS;
                 } else {
-                    // Ainda está no período de silêncio (dentro dos 20min)
-                    // Mantém o horário agendado original
                     nextKnownProblemIds[eventId] = nextAlertTime;
                 }
             }
         });
 
-        // Salva o objeto atualizado (apenas problemas que ainda estão ativos persistem)
         await chrome.storage.local.set({ lastKnownProblemIds: nextKnownProblemIds });
-        // FIM DA LÓGICA DE PREVENÇÃO PERSISTENTE
-
-        updateBadge(problems.length, false);
+        
+        // Atualiza Badge apenas com contagem de problemas ATIVOS (não resolvidos)
+        const activeCount = problems.filter(p => p.r_eventid === "0").length;
+        updateBadge(activeCount, false);
 
         return problems.length;
 
     } catch (error) {
-        // console.error("Erro na verificação de alertas Zabbix:", error.message);
-
         if (!isTest) {
             consecutiveErrorCount++;
             if (consecutiveErrorCount >= MAX_ERROR_COUNT) {
                 updateBadge(0, true);
             }
         }
-
         throw error;
     }
 }
@@ -369,16 +513,11 @@ function sendNotification(problem, timeoutSeconds = 0, customTagsString = 'Plant
             title: `ZABBIX ALERTA: ${severityName} (${hostName})`,
             message: `${tagsLine}\n${cleanMessageBody}`,
             priority: 2,
-            // REMOVIDO: buttons: [{ title: "Reconhecer (Acknowledge)" }]
         },
         (id) => {
             if (id && timeoutSeconds > 0) {
                 setTimeout(() => {
-                    chrome.notifications.clear(id, (wasCleared) => {
-                        // if (wasCleared) {
-                        // console.log(`Notificação ${id} fechada após ${timeoutSeconds} segundos.`);
-                        // }
-                    });
+                    chrome.notifications.clear(id, (wasCleared) => {});
                 }, timeoutSeconds * 1000);
             }
         }
@@ -393,10 +532,8 @@ function setupAlarm(intervalInMinutes) {
                 delayInMinutes: 0.1,
                 periodInMinutes: intervalInMinutes
             });
-            // console.log(`Novo alarme agendado: a cada ${intervalInMinutes} minutos.`);
             chrome.storage.local.set({ isMonitoringActive: true });
         } else {
-            // console.log(`Alarme desativado.`);
             updateBadge(0);
             chrome.storage.local.set({ isMonitoringActive: false });
         }
@@ -408,9 +545,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === ALARM_NAME) {
         chrome.storage.local.get('isMonitoringActive', (data) => {
             if (data.isMonitoringActive !== false) {
-                checkZabbixAlerts(false).catch(error => { /* console.error("Falha na verificação periódica do Zabbix:", error.message) */ });
-            } else {
-                // console.log("Verificação periódica ignorada: Monitoramento está INATIVO.");
+                checkZabbixAlerts(false).catch(error => {});
             }
         });
     }
@@ -420,10 +555,11 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 async function fetchZabbixAlertsForPopup() {
     try {
         const config = await new Promise(resolve => {
-            chrome.storage.local.get(['zabbixUrl', 'zabbixToken', 'selectedSeverities'], resolve);
+            // Inclui 'hostGroups' para o filtro.
+            chrome.storage.local.get(['zabbixUrl', 'zabbixToken', 'selectedSeverities', 'hostGroups'], resolve);
         });
 
-        const { zabbixUrl, zabbixToken } = config;
+        const { zabbixUrl, zabbixToken, hostGroups } = config;
 
         if (!zabbixUrl || !zabbixToken) {
             throw new Error('URL ou Token do Zabbix não configurados.');
@@ -431,22 +567,42 @@ async function fetchZabbixAlertsForPopup() {
 
         const apiUrl = zabbixUrl.endsWith('/api_jsonrpc.php') ? zabbixUrl : zabbixUrl.replace(/\/+$/, '') + '/api_jsonrpc.php';
 
-        // Busca todas as severidades para a lista do popup
         const severitiesToFetch = [0, 1, 2, 3, 4, 5];
+        
+        const hostGroupNames = hostGroups 
+            ? hostGroups.split(',').map(name => name.trim()).filter(name => name.length > 0)
+            : [];
+            
+        let hostGroupsToFetch = [];
+        if (hostGroupNames.length > 0) {
+            hostGroupsToFetch = await getGroupIdsFromNames(hostGroupNames, zabbixUrl, zabbixToken);
+            if (hostGroupsToFetch.length === 0) {
+                console.warn("Nenhum Host ID encontrado para os grupos especificados. Alerta desconsiderado.");
+                return [];
+            }
+        }
 
-        // Passo 1: Busca problemas (limitado a 50)
+        console.log('--- POPUP FETCH DEBUG ---');
+        console.log('Host Group Names:', hostGroupNames);
+            
+        const params = {
+            output: ['eventid', 'name', 'severity', 'objectid', 'object', 'clock', 'r_eventid', 'r_clock'], // r_eventid adicionado
+            selectHosts: ['hostid', 'name', 'status', 'maintenance_status'], 
+            recent: true, 
+            severities: severitiesToFetch,
+            sortfield: 'eventid',
+            sortorder: 'DESC',
+            limit: 50,
+        };
+
+        if (hostGroupsToFetch.length > 0) {
+            params.groupids = hostGroupsToFetch;
+        }
+
         const problemRequestBody = {
             jsonrpc: '2.0',
             method: 'problem.get',
-            params: {
-                output: ['eventid', 'name', 'severity', 'objectid', 'object', 'clock'],
-                selectHosts: ['hostid', 'name'],
-                recent: false,
-                severities: severitiesToFetch,
-                sortfield: 'eventid',
-                sortorder: 'DESC',
-                limit: 50, // Limite para os 50 mais recentes
-            },
+            params: params,
             id: 1,
             auth: zabbixToken
         };
@@ -464,49 +620,57 @@ async function fetchZabbixAlertsForPopup() {
         const data = await response.json();
 
         if (data.error) {
+            console.error('API Error Response:', data.error);
             throw new Error(`Erro na API Zabbix: ${data.error.message}. Verifique o Token.`);
         }
-
+        
         let problems = data.result || [];
+        
+        // FILTRO 1: Hosts Inativos
+        problems = problems.filter(problem => {
+            if (!problem.hosts || problem.hosts.length === 0) return true; 
+            const hostStatus = problem.hosts[0].status;
+            const maintenanceStatus = problem.hosts[0].maintenance_status;
+            // AQUI GARANTIMOS QUE SÓ SERÃO MANTIDOS HOSTS ATIVOS ('0') E FORA DE MANUTENÇÃO ('0')
+            return (hostStatus === '0' && maintenanceStatus === '0'); 
+        });
 
-        // PASSO 2: Processa os Hosts (Robusto)
+        // FILTRO 2: Item/Trigger Inativo (NOVO)
+        problems = await filterProblemsByTriggerStatus(problems, zabbixUrl, zabbixToken);
+
+
+        // PASSO 3: Processa os Hosts
         problems = await Promise.all(problems.map(async problem => {
             let hostId = null;
             let hostName = null;
 
-            // 1. Tenta obter o host diretamente do evento do problema
             if (problem.hosts && problem.hosts.length > 0) {
                 hostId = problem.hosts[0].hostid;
                 hostName = problem.hosts[0].name;
             }
 
-            // 2. Se for um trigger (object=0) e o hostid estiver ausente, faz o lookup
             if (!hostId && problem.object === '0' && problem.objectid) {
                 hostId = await getHostIdFromTriggerId(problem.objectid, zabbixUrl, zabbixToken);
             }
 
-            // 3. Se encontrou o ID do host mas o nome está faltando, busca o nome
             if (hostId && !hostName) {
                 hostName = await getHostNameFromId(hostId, zabbixUrl, zabbixToken);
             }
 
-            problem.fetchedHostName = hostName; // Host name ou null/erro string
-
-            // Define o nome de exibição: usa o nome buscado ou tenta extrair do problema
+            problem.fetchedHostName = hostName; 
+            
             let displayName = hostName;
-
-            // Tenta extrair o nome do host do problema como fallback se a busca falhar ou retornar null/erro
             if (!displayName || displayName === 'Erro na Busca Host' || displayName.startsWith('Host ID ')) {
                 const nameParts = problem.name.split(':');
-                // Assume que a primeira parte é o host se houver dois pontos. Senão, usa 'Host Desconhecido'.
                 displayName = (nameParts.length > 1) ? nameParts[0].trim() : 'Host Desconhecido';
             }
 
-            problem.hostDisplayName = displayName; // Propriedade final para o popup
+            problem.hostDisplayName = displayName; 
 
             return problem;
         }));
-
+        
+        // A lista 'problems' aqui contém apenas hosts/itens ativos e será enviada para o popup.
         return problems;
 
     } catch (error) {
@@ -526,13 +690,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     if (request.action === 'testCheck') {
         consecutiveErrorCount = 0;
-        checkZabbixAlerts(true)
+        checkZabbixAlerts(true) 
             .then(problemCount => {
-                updateBadge(problemCount, false);
                 sendResponse({ status: 'success', count: problemCount });
             })
             .catch(error => {
-                updateBadge(0, true);
                 sendResponse({ status: 'error', message: error.message });
             });
         return true;
@@ -545,9 +707,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // HANDLER PARA BUSCAR ALERTAS PARA O POPUP
     if (request.action === 'fetchPopupAlerts') {
-        fetchZabbixAlertsForPopup()
+        // Quando o popup pede a lista, ele recebe a lista JÁ FILTRADA por esta função.
+        fetchZabbixAlertsForPopup() 
             .then(alerts => {
                 sendResponse({ status: 'success', alerts: alerts });
             })
@@ -564,14 +726,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-// 7. Configuração inicial (mantida)
+// 7. Configuração inicial
 chrome.storage.local.get(['checkInterval', 'isMonitoringActive'], (data) => {
-    const isInitiallyActive = data.isMonitoringActive !== false; // Padrão é ativo
+    const isInitiallyActive = data.isMonitoringActive !== false; 
 
     if (isInitiallyActive && data.checkInterval) {
         setupAlarm(data.checkInterval);
-        // Garante que a primeira checagem ocorre imediatamente, carregando os problemas atuais
-        checkZabbixAlerts(false).catch(error => { /* console.error("Falha na checagem inicial do Zabbix:", error.message) */ });
+        checkZabbixAlerts(false).catch(error => {});
     } else if (!isInitiallyActive) {
         setupAlarm(0);
     } else {
